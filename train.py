@@ -10,6 +10,9 @@
 #
 
 import os
+
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
@@ -45,6 +48,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_end = torch.cuda.Event(enable_timing = True)
 
     viewpoint_stack = None
+    viewpoint_d_stack = None
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -75,19 +79,57 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
-        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        if not viewpoint_d_stack:
+            viewpoint_d_stack = scene.getDepthCameras().copy()
+
+        cam_int = randint(0, len(viewpoint_stack)-1)
+        print("4")
+        # print(len(viewpoint_stack), len(viewpoint_d_stack))
+        cam_int = 1
+        viewpoint_cam = viewpoint_stack.pop(cam_int)
+        viewpoint_d_cam = viewpoint_d_stack.pop(cam_int)
 
         # Render
+        print("31")
         if (iteration - 1) == debug_from:
             pipe.debug = True
         render_pkg = render(viewpoint_cam, gaussians, pipe, background)
+        torch.cuda.synchronize()
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
+        print("render complete")
         # Loss
+
+
+        # get gt_image and calc L1 loss with rendered c image
+  
+        # depth_gt = viewpoint_d_cam.original_image.cuda()
+
+
+        # depth = render_pkg["depth"]
+
+        # print("do we make it this far")
+
+        # Just make the depth_gt and the gaussian depth with the same dimension
+        # depth_image = depth_image.reshape(1, 1, *depth_image.shape)
+        # depth_gt = F.interpolate(fid, size=(900, 1600), mode='bilinear', align_corners=False)[0]  # match the scaling process of official 3D Gaussian
+
+        # depth_gt = depth_gt / depth_gt.max()  # make the depth_gt ranging from 0-1
+        # loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + l1_loss(depth_gt, depth) * 0.1
+
+        # print(l1_loss(depth_gt, depth) * 0.1)
+
         gt_image = viewpoint_cam.original_image.cuda()
+        print("1")
         Ll1 = l1_loss(image, gt_image)
+        print("2")
+        torch.cuda.synchronize()
+        print("3")
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        # print(loss)
+        print("where stuck")
+        print("69")
         loss.backward()
+        print("maybe here")
 
         iter_end.record()
 
